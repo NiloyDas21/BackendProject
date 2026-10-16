@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/Apiresponse.js";
+import jwt from "jsonwebtoken"
 
 const registerUser = asyncHandler(async (req,res) =>{
     //req.body works when req is either coming from a form / json 
@@ -72,7 +73,7 @@ const generateAccessNRefreshToken = async(userId) =>{
         const accessToken = user.generateAccessToken();
         const refreshToken = user.generateRefreshToken();
         
-        //Save Refresh Token in DB
+        //Save new Refresh Token in DB
 
         user.refreshToken= refreshToken
         await user.save({validateBeforeSave:false})
@@ -133,7 +134,82 @@ const loginUser = asyncHandler(async (req,res) => {
 
 })
 
-export {registerUser,loginUser} 
+//logoutUser means delete the refreshToken
+
+const logoutUser =await asyncHandler( async(req,res) =>{
+    //we have access to user, since had user_id from access token, from that we got user, and at last we did req.user = user
+    //.findByIdAndUpdate only updates and saves the mentioned field
+
+    User.findByIdAndUpdate(req.user._id,
+        {
+            $set:{
+                refreshToken:undefined
+            }
+        },
+        {
+                new:true
+        }
+    )
+
+    const options = {
+        httpOnly:true,
+        secure:true
+    }
+
+    return res
+    .status(200)
+    .clearCookie("accessToken",options)
+    .clearCookie("refreshToken",options)
+    .json(new ApiResponse(200,{},"User logged out Successfully"))
+    
+}) 
+
+const refreshAccessToken = asyncHandler(async(req,res) => {
+    //get the refreshToken from clientside(browser) and verify with the one stored in DB
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+    if(!incomingRefreshToken){
+        throw new ApiError(401,"RefreshToken not found")
+    }
+
+    //decode it and compare with DB
+    try {
+        const decodedRefreshToken=jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
+        if(!decodedRefreshToken){
+            throw new ApiError(401,"RefreshToken not found")
+        }
+        //refreshToken has id, from that we get user, user has refreshToken(one saved in DB)
+        const user =await User.findById(decodedRefreshToken._id)
+        if(!user){
+            throw new ApiError(401,"Invalid Refresh Token")
+        }
+        if((user?.refreshToken !== incomingRefreshToken)){ //here user has refreshToken which is encrypted
+            throw new ApiError(401,"Invalid Refresh Token")
+        }
+
+        const {accessToken,newrefreshToken} =await generateAccessNRefreshToken(user._id)
+
+        const options = {
+            httpOnly:true,
+            secure:true
+        }
+
+        return res
+        .status(200)
+        .cookie("accessToken",accessToken,options)
+        .cookie("newRefreshToken",newrefreshToken,options)
+        .json(
+            new ApiResponse(200,
+                {accessToken,refreshToken:newrefreshToken},
+                "accessToken verified"
+            )
+        )
+        
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid refreshToken")
+    }
+})
+
+export {registerUser,loginUser,logoutUser,refreshAccessToken} 
 
 
 
