@@ -209,7 +209,221 @@ const refreshAccessToken = asyncHandler(async(req,res) => {
     }
 })
 
-export {registerUser,loginUser,logoutUser,refreshAccessToken} 
+const changeCurrentPassword = asyncHandler(async(req,res) => {
+    const {oldPassword,newPassword}=req.body
+
+    //Check whether Old pass is correct or not, req r usrt ase user -> user t ase password, but we can also see that user has a method isPasswordCorrect
+    const user = User.findById(req.user?._id)
+
+    const isCorrectPassword=user.isPasswordCorrect(oldPassword)
+    if(!isCorrectPassword){
+        throw new ApiError(401,"Incorrect Password")
+    }
+
+    user.password = newPassword
+
+    //save that password
+    await user.save({validateBeforeSave:false})
+
+    return res
+    .status(200)
+    .json(new ApiResponse(200,{},"Password changed successfully"))
+
+
+
+})
+
+const getCurrentUser = asyncHandler(async(req,res) => {
+    res
+    .status(200)
+    .json(new ApiResponse(200,req.user,"User fetched successfully"))
+})
+
+const updateAccountDetails = asyncHandler(async(req,res) => {
+    // fullName, email, 
+    try {
+        const {fullName,email}=req.body
+        if(!(fullName) || !(email)){
+            throw new ApiError(401,"All Fields required")
+        }
+    
+        const user =await User.findById(req.user?._id)
+        if(!user){
+            throw new ApiError(400,"User not found")
+        }
+        user.fullName = fullName
+        user.email = email
+        await user.save({validateBeforeSave:false})
+    
+        return res
+        .status(200)
+        .json(new ApiResponse(200, user, "Account details updated successfully"))
+    } catch (error) {
+        throw new ApiError(400,error?.message || "Details can't be updated")
+    }
+
+
+})
+
+const updateUserAvatar = asyncHandler(async (req,res) =>{
+    /* 
+    Receive avatar through Multer
+    Get local path and validate file
+    Upload image to Cloudinary
+    Save returned URL in MongoDB
+    Return updated user details
+     */
+
+    try {
+        const avatarLocalPath = req.file?.path;
+        if(!avatarLocalPath){
+            throw new ApiError(400,"Avatar path not found")
+        }
+        
+        //
+        
+        const avatar=await uploadOnCloudinary(avatarLocalPath)
+        if(!avatar.url){
+            throw new ApiError(400,"Avatar not uplaoded successfully ")
+        }
+    
+        //find the user by Id and save returned URL in MongoDB
+        const user =await User.findByIdAndUpdate(req.user?._id,
+            {
+                $set:{
+                    avatar : avatar.url
+                }
+            },
+            {
+                new:true
+            }
+        ).select("-password")
+    
+        return res
+        .status(200)
+        .json(new ApiResponse(200,
+            {
+                user
+            },
+            "Avatar updated successfully"
+        ))
+    } catch (error) {
+        throw new ApiError(400,error?.message || "Avatar can't be updated")
+    }
+
+
+})
+
+//No, Niloy, using req.file?.path in both functions will not create a problem by itself. Both functions can use the same property because each request uploads a different file at a different endpoint.
+
+const updateUserCoverImage = asyncHandler(async (req,res) =>{
+    try {
+        const coverImageLocalPath=req.file?.path
+        if(!coverImageLocalPath){
+            throw new ApiError(400,"CoverImage path not found")
+        }
+    
+        //If found upload on cloudinary
+        const coverImage =await uploadOnCloudinary(coverImageLocalPath)
+        if(!coverImage?.url){
+            throw new ApiError(400,"Error while uploading coverImage on Cloudinary")
+        }
+    
+        const user = await User.findByIdAndUpdate(req.user?._id,
+            {
+                $set:{
+                    coverImage:coverImage.url
+                }
+            },
+            {
+                new:true
+            }).select("-password")
+    
+        return res
+        .status(200)    
+        .json(new ApiResponse(200,{user},"coverImage updated Successfully"))
+    } catch (error) {
+        throw new ApiError(400,error?.message || "coverImage can't be updated")
+    }
+    
+})
+
+const getUserChannelProfile = asyncHandler(async (req,res) => {
+    //User searches for a particular channel
+    const {username}=req.params
+    if(!username?.trim()){
+        throw new ApiError(400,"Username is missing")
+    }
+
+    //find that particular user(can also be done by getting id first and then aggregation can be done further), but here we are using match
+    const channel = await User.aggregate([
+        {
+            $match:{
+                username:username
+            }
+        },
+        //getting no of subs
+        {
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"channel",
+                as:"subscribers"
+            }
+        },
+        //getting no of channels subscriber to
+        {
+            $lookup:{
+                from:"subscriptions",
+                localField:"_id",
+                foreignField:"subscriber",
+                as:"subscribedTo"
+            }
+        },
+        //adding fields to user model to show on channel profile
+        {
+            $addFields:{
+                SubscriberCount:{
+                    $size:"subscribers"
+                },
+                channelsSubcribedToCount:{
+                    $size:"subscribedTo"
+                },
+                //To check if we are subscribed to that channel or not
+
+                isSubscribed:{
+                    $cond:{
+                        if:{$in:[req.user?._id,"$subscribers.subscriber"]},
+                        then:true,
+                        else:false
+                    }
+                }
+            }
+        },
+        {
+            $project:{
+                fullName:1,
+                username:1,
+                coverImage:1,
+                avatar:1,
+                SubscriberCount:1,
+                channelsSubcribedToCount:1,
+                isSubscribed:1,
+
+            }
+        }
+    ])
+
+    if(!channel.length){
+        throw new ApiError(401,"Channel not found")
+    }
+
+    return res
+    .status(200)
+    .json(new ApiResponse(200, channel[0], "User channel fetched successfully"))
+
+})
+export {registerUser,loginUser,logoutUser,refreshAccessToken,changeCurrentPassword,getCurrentUser,updateAccountDetails,updateUserAvatar,updateUserCoverImage,getUserChannelProfile} 
 
 
 
