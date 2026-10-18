@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/Apiresponse.js";
 import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
 
 const registerUser = asyncHandler(async (req,res) =>{
     //req.body works when req is either coming from a form / json 
@@ -423,7 +424,60 @@ const getUserChannelProfile = asyncHandler(async (req,res) => {
     .json(new ApiResponse(200, channel[0], "User channel fetched successfully"))
 
 })
-export {registerUser,loginUser,logoutUser,refreshAccessToken,changeCurrentPassword,getCurrentUser,updateAccountDetails,updateUserAvatar,updateUserCoverImage,getUserChannelProfile} 
+
+const getWatchHistory = asyncHandler(async(req,res) => {
+    try {
+        const user =await User.aggregate(
+            [
+                {   //match userid
+                    $match:{
+                        _id:new mongoose.Types.ObjectId(req.user?._id)
+                    }
+                },{
+                    $lookup:{
+                        from:"videos",
+                        localField:"watchHistory:",
+                        foreignField:"_id",
+                        as:"watchhistory",
+                        pipeline:[                        //needed to get the user details of the channel
+                            {
+                                $lookup:{
+                                    from:"user",
+                                    localField:"owner",
+                                    foreignField:"_id",
+                                    as:"channelowner",
+                                    pipeline:[{
+                                        $project:{
+                                            username:1,
+                                            fullName:1,
+                                            avatar:1,
+                                        }
+                                    }]
+                                }
+                            }
+                        ]
+                    }
+                },{
+                    //Not necessary, included to make the owner appear first with username,fullName and avatar and nothing else appears
+                    $addFields:{
+                        owner:{
+                            $first:"$owner"
+                        }
+                    }
+                }
+            ])
+    
+        return res
+        .status(200)
+        .json(new ApiResponse(200
+            ,user[0].watchHistory
+            ,"watch History fetched successfully"))
+    } catch (error) {
+        throw new ApiError(200,error.message || "Something went wrong")
+    }
+
+})
+export {registerUser,loginUser,logoutUser,refreshAccessToken,changeCurrentPassword,getCurrentUser,updateAccountDetails,updateUserAvatar,updateUserCoverImage,getUserChannelProfile,getWatchHistory} 
 
 
 
