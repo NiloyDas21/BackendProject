@@ -26,6 +26,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.11.1",
+    "mongoose-aggregate-paginate-v2": "^1.1.5",
     "multer": "^2.4.0"
   }
 }
