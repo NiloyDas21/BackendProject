@@ -9,7 +9,7 @@ import mongoose from "mongoose";
 const registerUser = asyncHandler(async (req,res) =>{
     //req.body works when req is either coming from a form / json 
 
-    const {username,email,fullName,password}=req.body
+    const {username,email,fullName,password} = req.body || {}
 
     // if(fullName === ""){
     //     throw new ApiError(400,"fullName is required")
@@ -90,9 +90,13 @@ const generateAccessNRefreshToken = async(userId) =>{
 }
 
 const loginUser = asyncHandler(async (req,res) => {
-    const {username,email, password} = req.body
+    const {username,email,password} = req.body || {}
     if(!(username || email)){
         throw new ApiError(400,"username or email is required")
+    }
+
+    if(!password){
+        throw new ApiError(400,"Password is required")
     }
 
     const user=await User.findOne({
@@ -112,7 +116,7 @@ const loginUser = asyncHandler(async (req,res) => {
 
     const {accessToken,refreshToken}=await generateAccessNRefreshToken(user._id);
 
-    const loggedInUser=await User.findById(user_id).select("-password -refreshToken")
+    const loggedInUser=await User.findById(user._id).select("-password -refreshToken")
 
     //httpOnly: true
     //The cookie cannot be read by JavaScript in the browser
@@ -137,14 +141,14 @@ const loginUser = asyncHandler(async (req,res) => {
 
 //logoutUser means delete the refreshToken
 
-const logoutUser =await asyncHandler( async(req,res) =>{
+const logoutUser = asyncHandler(async(req,res) =>{
     //we have access to user, since had user_id from access token, from that we got user, and at last we did req.user = user
     //.findByIdAndUpdate only updates and saves the mentioned field
 
-    User.findByIdAndUpdate(req.user._id,
+    await User.findByIdAndUpdate(req.user._id,
         {
-            $set:{
-                refreshToken:undefined
+            $unset:{
+                refreshToken:1
             }
         },
         {
@@ -211,26 +215,36 @@ const refreshAccessToken = asyncHandler(async(req,res) => {
 })
 
 const changeCurrentPassword = asyncHandler(async(req,res) => {
-    const {oldPassword,newPassword}=req.body
+    try {
+        const {oldPassword,newPassword}=req.body
+    
+        //Check whether Old pass is correct or not, req r usrt ase user -> user t ase password, but we can also see that user has a method isPasswordCorrect
+        console.log("req.user:", req.user);
+        console.log("User ID:", req.user?._id);
+        const user =await User.findById(req.user?._id)
+            if (!user) {
+        throw new ApiError(404, "User not found");
+        }
 
-    //Check whether Old pass is correct or not, req r usrt ase user -> user t ase password, but we can also see that user has a method isPasswordCorrect
-    const user = User.findById(req.user?._id)
-
-    const isCorrectPassword=user.isPasswordCorrect(oldPassword)
-    if(!isCorrectPassword){
-        throw new ApiError(401,"Incorrect Password")
+    
+        const isCorrectPassword=await user.isPasswordCorrect(oldPassword)
+        if(!isCorrectPassword){
+            throw new ApiError(401,"Incorrect Password")
+        }
+    
+        user.password = newPassword
+    
+        //save that password
+        await user.save({validateBeforeSave:false})
+    
+        return res
+        .status(200)
+        .json(new ApiResponse(200,{},"Password changed successfully"))
+    
+    
+    } catch (error) {
+        throw new ApiError(401,error.message || "Something went wrong")
     }
-
-    user.password = newPassword
-
-    //save that password
-    await user.save({validateBeforeSave:false})
-
-    return res
-    .status(200)
-    .json(new ApiResponse(200,{},"Password changed successfully"))
-
-
 
 })
 
@@ -385,10 +399,10 @@ const getUserChannelProfile = asyncHandler(async (req,res) => {
         {
             $addFields:{
                 SubscriberCount:{
-                    $size:"subscribers"
+                    $size:"$subscribers"
                 },
                 channelsSubcribedToCount:{
-                    $size:"subscribedTo"
+                    $size:"$subscribedTo"
                 },
                 //To check if we are subscribed to that channel or not
 

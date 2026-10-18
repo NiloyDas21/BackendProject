@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import jwt from "jsonwebtoken"
 
-export const verifyJWT =await asyncHandler(async(req,res,next) =>{
+export const verifyJWT = asyncHandler(async(req,res,next) =>{
     try {
         const token =req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ","")
         if(!token){
@@ -12,7 +12,7 @@ export const verifyJWT =await asyncHandler(async(req,res,next) =>{
 
         //We need to check whether the token is correct or not. -> with the help of jwt.verify
         const decryptedToken=jwt.verify(token,process.env.ACCESS_TOKEN_SECRET)
-        const user =User.findById(decryptedToken._id)
+        const user =await User.findById(decryptedToken._id)
         if(!user){
             throw new ApiError(401,"Invalid Access Token")
         }
